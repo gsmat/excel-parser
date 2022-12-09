@@ -2,15 +2,14 @@
 
 namespace App\Console\Commands;
 
-use App\Models\ESD_DOC;
 use Box\Spout\Common\Exception\IOException;
 use Box\Spout\Reader\Common\Creator\ReaderEntityFactory;
 use Box\Spout\Reader\Exception\ReaderNotOpenedException;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
-use Illuminate\Support\Str;
 use ReflectionException;
 use Throwable;
 
@@ -77,22 +76,23 @@ class ExcelImport extends Command
                 "from_address",
                 "last_updated_date",
             ];
+            $fieldNames = [];
             foreach ($reader->getSheetIterator() as $sheet) {
                 foreach ($sheet->getRowIterator() as $key => $row) {
-
+                    $cells = $row->getCells();
                     if ($key === 1) {
-                        $fieldNames = $row->getCells();
-                        dd($fileNames);
-                        $this->checkTable($fileName, $fieldNames);
+                        $this->checkTable($fileName, $cells);
+                        foreach ($cells as $cell) {
+                            $fieldNames[] = $cell->getValue();
+                        }
                     } else {
-                        $cells = $row->getCells();
                         $data = [];
                         $multipleArrays = new \MultipleIterator();
                         $multipleArrays->attachIterator(new \ArrayIterator($cells));
-                        $multipleArrays->attachIterator(new \ArrayIterator($dbNameKeys));
+                        $multipleArrays->attachIterator(new \ArrayIterator($fieldNames));
                         foreach ($multipleArrays as $multipleArray) {
                             try {
-                                $value = $this->checkObject($multipleArray[0]->getValue());
+                                $value = trim($this->checkObject($multipleArray[0]->getValue()));
                                 if ($multipleArray[0]->getType() === 5) {
                                     $data[$multipleArray[1]] = (string)Carbon::make($multipleArray[0]->getValue())->format('Y-m-d h:m:s');
                                 } else {
@@ -106,10 +106,10 @@ class ExcelImport extends Command
                             }
                         }
                         try {
-                            ESD_DOC::query()->create($data);
+                            DB::table('INTEGRATION_' . $fileName)->insert($data);
                             $this->info("[x] $key  Record Successfully inserted");
                         } catch (Throwable|\Exception $e) {
-                            return $e->getMessage();
+                            dd($e->getMessage());
                         }
 
                     }
@@ -135,25 +135,18 @@ class ExcelImport extends Command
         }
     }
 
-    public function checkTable(string $table, array $fields): bool
+    public function checkTable(string $tableName, array $fields): bool
     {
-        if (!Schema::hasTable(Str::lower($table))) {
+        if (Schema::hasTable('INTEGRATION_' . $tableName) === false) {
             try {
-                Schema::create($table, static function (Blueprint $table) use ($fields) {
+                Schema::create('INTEGRATION_' . $tableName, static function (Blueprint $table) use ($fields) {
                     foreach ($fields as $field) {
-                        if ($field->getType() === 1) {
-                            $table->integer($field->getValue());
-                        }
-                        if ($field->getType() === 0) {
-                            $table->string($field->getValue());
-                        }
-                        if ($field->getType() === 5) {
-                            $table->date($field->getValue());
-                        }
+                        $table->string($field->getValue(), 255)->nullable();
                     }
                 });
-            } catch (\Exception $exception) {
-                dd($exception->getMessage());
+            } catch (\Throwable $exception) {
+//                dd($exception->getMessage());
+                return $exception->getMessage();
             }
         }
         return true;
