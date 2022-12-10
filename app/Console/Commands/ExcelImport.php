@@ -6,6 +6,7 @@ use Box\Spout\Common\Exception\IOException;
 use Box\Spout\Reader\Common\Creator\ReaderEntityFactory;
 use Box\Spout\Reader\Exception\ReaderNotOpenedException;
 use Carbon\Carbon;
+use Exception;
 use Illuminate\Console\Command;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
@@ -47,35 +48,6 @@ class ExcelImport extends Command
             return $e->getMessage();
         }
         try {
-            $dbNameKeys = [
-                "doc_id",
-                "doc_code",
-                "doc_type_id",
-                "doc_in_type_id",
-                "doc_direct_id",
-                "org_id",
-                "no_of_sheets",
-                "exec_type_id",
-                "data_executed",
-                "exec_user_id",
-                "date_created",
-                "date_received",
-                "code_received",
-                "rcvd_under_control",
-                "execution_period",
-                "doc_content",
-                "note",
-                "create_user_id",
-                "dep_id",
-                "send_org_id",
-                "sys_date",
-                "chr_id",
-                "expire_date",
-                "copy_doc_id",
-                "exec_dep_id",
-                "from_address",
-                "last_updated_date",
-            ];
             $fieldNames = [];
             foreach ($reader->getSheetIterator() as $sheet) {
                 foreach ($sheet->getRowIterator() as $key => $row) {
@@ -106,10 +78,14 @@ class ExcelImport extends Command
                             }
                         }
                         try {
-                            DB::table('INTEGRATION_' . $fileName)->insert($data);
-                            $this->info("[x] $key  Record Successfully inserted");
+                            if (DB::table('INTEGRATION_' . $fileName)->insert($data)) {
+                                $this->info("[x] $key  Record Successfully inserted");
+                            } else {
+                                $this->warn("[x] $key  Record doesnt inserted");
+                            }
+
                         } catch (Throwable|\Exception $e) {
-                            dd($e->getMessage());
+                            return $e->getMessage();
                         }
 
                     }
@@ -137,17 +113,18 @@ class ExcelImport extends Command
 
     public function checkTable(string $tableName, array $fields): bool
     {
-        if (Schema::hasTable('INTEGRATION_' . $tableName) === false) {
-            try {
-                Schema::create('INTEGRATION_' . $tableName, static function (Blueprint $table) use ($fields) {
+        $modifiedTableName = 'INTEGRATION_' . $tableName;
+        try {
+            if (Schema::hasTable($modifiedTableName) === false) {
+                Schema::create($modifiedTableName, static function (Blueprint $table) use ($fields) {
                     foreach ($fields as $field) {
                         $table->string($field->getValue(), 255)->nullable();
                     }
                 });
-            } catch (\Throwable $exception) {
-//                dd($exception->getMessage());
-                return $exception->getMessage();
             }
+        } catch (Exception|Throwable $exception) {
+//            dd($exception->getMessage());
+            return $exception->getMessage();
         }
         return true;
 
