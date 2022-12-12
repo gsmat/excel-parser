@@ -78,7 +78,7 @@ class ExcelImport extends Command
                             }
                         }
                         try {
-                            if (DB::table('INTEGRATION_' . $fileName)->insert($data)) {
+                            if (DB::table($fileName)->insert($data)) {
                                 $this->info("[x] $key  Record Successfully inserted");
                             } else {
                                 $this->warn("[x] $key  Record doesnt inserted");
@@ -113,7 +113,7 @@ class ExcelImport extends Command
 
     public function checkTable(string $tableName, array $fields): bool
     {
-        $modifiedTableName = 'INTEGRATION_' . $tableName;
+        $modifiedTableName = $tableName;
         try {
             if (Schema::hasTable($modifiedTableName) === false) {
                 Schema::create($modifiedTableName, static function (Blueprint $table) use ($fields) {
