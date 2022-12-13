@@ -5,7 +5,6 @@ namespace App\Console\Commands;
 use Box\Spout\Common\Exception\IOException;
 use Box\Spout\Reader\Common\Creator\ReaderEntityFactory;
 use Box\Spout\Reader\Exception\ReaderNotOpenedException;
-use Carbon\Carbon;
 use Exception;
 use Illuminate\Console\Command;
 use Illuminate\Database\Schema\Blueprint;
@@ -49,54 +48,52 @@ class ExcelImport extends Command
         }
         try {
             $fieldNames = [];
+            $data = [];
             foreach ($reader->getSheetIterator() as $sheet) {
+
                 foreach ($sheet->getRowIterator() as $key => $row) {
                     $cells = $row->getCells();
+
                     if ($key === 1) {
                         $this->checkTable($fileName, $cells);
                         foreach ($cells as $cell) {
                             $fieldNames[] = $cell->getValue();
                         }
                     } else {
-                        $data = [];
+                        $rowData = [];
                         $multipleArrays = new \MultipleIterator();
                         $multipleArrays->attachIterator(new \ArrayIterator($cells));
                         $multipleArrays->attachIterator(new \ArrayIterator($fieldNames));
                         foreach ($multipleArrays as $multipleArray) {
                             try {
-                                $value = trim($this->checkObject($multipleArray[0]->getValue()));
-                                if ($multipleArray[0]->getType() === 5) {
-                                    $data[$multipleArray[1]] = (string)Carbon::make($multipleArray[0]->getValue())->format('Y-m-d h:m:s');
-                                } else {
-                                    if ($value === '') {
-                                        (int)$value = 0;
-                                    }
-                                    $data[$multipleArray[1]] = $value;
-                                }
-                            } catch (ReflectionException|\Exception $e) {
+                                $rowData[$multipleArray[1]] = trim($this->checkObject($multipleArray[0]->getValue()));
+                            } catch (ReflectionException|Exception $e) {
                                 return $e->getMessage();
                             }
                         }
-                        try {
-                            if (DB::table($fileName)->insert($data)) {
-                                $this->info("[x] $key  Record Successfully inserted");
-                            } else {
-                                $this->warn("[x] $key  Record doesnt inserted");
-                            }
-
-                        } catch (Throwable|\Exception $e) {
-                            return $e->getMessage();
-                        }
-
+                        $data[] = $rowData;
+                        unset($rowData);
                     }
+                    unset($cells);
                 }
-
+                try {
+                    foreach ($this->chunk($data, 100) as $chunk) {
+                        if (DB::table('INTEGRATION_' . $fileName)->insert($chunk)) {
+                            $this->info("[x]  Record Successfully inserted");
+                        } else {
+                            $this->warn("[x]  Record doesnt inserted");
+                        }
+                    }
+                } catch (Throwable|Exception $e) {
+//                    return $e->getMessage();
+                    dd($e->getMessage());
+                }
             }
-        } catch (ReaderNotOpenedException|ReflectionException|Throwable|\Exception $e) {
+        } catch (ReaderNotOpenedException|ReflectionException|Throwable|Exception $e) {
             return $e->getMessage();
         }
         $reader->close();
-        $this->info('Inserting process was successful!');
+        $this->info('[x] File Closed');
     }
 
     public function checkObject($obj)
@@ -113,7 +110,7 @@ class ExcelImport extends Command
 
     public function checkTable(string $tableName, array $fields): bool
     {
-        $modifiedTableName = $tableName;
+        $modifiedTableName = 'INTEGRATION_' . $tableName;
         try {
             if (Schema::hasTable($modifiedTableName) === false) {
                 Schema::create($modifiedTableName, static function (Blueprint $table) use ($fields) {
@@ -121,13 +118,23 @@ class ExcelImport extends Command
                         $table->string($field->getValue(), 255)->nullable();
                     }
                 });
+                $this->info('[x] Table Created');
+            } else {
+                $this->info('[x] Table exist');
             }
         } catch (Exception|Throwable $exception) {
-//            dd($exception->getMessage());
-            return $exception->getMessage();
+            dd($exception->getMessage());
+//            return $exception->getMessage();
         }
         return true;
 
+    }
+
+    public function chunk($data, $chunkSize)
+    {
+        for ($i = 0, $j = count($data); $i < $j; $i += $chunkSize) {
+            yield array_slice($data, $i, $chunkSize);
+        }
     }
 
 }
