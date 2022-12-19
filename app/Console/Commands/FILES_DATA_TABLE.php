@@ -11,55 +11,67 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use ReflectionException;
+use Symfony\Component\Console\Command\Command as CommandAlias;
 use Throwable;
 
-class ExcelImport extends Command
+class FILES_DATA_TABLE extends Command
 {
     /**
      * The name and signature of the console command.
      *
      * @var string
      */
-    protected $signature = 'import:excel {--filePath=}';
+    protected $signature = 'excel:files';
 
     /**
      * The console command description.
      *
      * @var string
      */
-    protected $description = 'Import excel file to creatable table';
+    protected $description = 'Command description';
 
     /**
      * Execute the console command.
      *
-     * @return string|void
+     * @return int
      */
     public function handle()
     {
+        if (Schema::hasTable('INTEGRATION_FILES_DATA_TABLE') === false) {
+            Schema::create('INTEGRATION_FILES_DATA_TABLE', static function (Blueprint $table) {
+                $table->integer('FILE_ID')->default(0);
+                $table->string('FILE_PATH')->nullable();
+                $table->integer('DOC_ID')->default(0);
+                $table->integer('FILE_STATUS_ID')->default(0);
+                $table->integer('FILES_TEXT_ID')->default(0);
+                $table->string('FILE_NAME')->nullable();
+                $table->integer('EMP_ID')->default(0);
+                $table->integer('MOV_LEVEL')->default(-1)->comment('default value minus one');
+                $table->integer('IS_VISIBLE')->default(-1)->comment('default value minus one');
+                $table->integer('FILE_TYPE_ID')->default(0)->comment('default value zero');
+                $table->string('SYS_DATE')->nullable();
+            });
+            $this->info('[x] Table Created');
+        }
         ini_set('memory_limit', '10000000000');
-        $argument = $this->option('filePath');
-        $filePath = public_path($argument);
-        $reader = ReaderEntityFactory::createXLSXReader($argument);
-        $fileName = basename($filePath, '.xlsx');
+        $path = '/files/FILES_DATA_TABLE.xlsx';
+        $filePath = public_path($path);
+        $reader = ReaderEntityFactory::createXLSXReader($path);
         try {
             $reader->open($filePath);
             $this->info('[x] File opened');
         } catch (IOException|Exception $e) {
             dd($e->getMessage());
         }
-        try {
-            $fieldNames = [];
-            $data = [];
 
+        try {
+            $data = [];
+            $fieldNames = [];
             foreach ($reader->getSheetIterator() as $sheetKey => $sheet) {
-//                Artisan::call('optimize:clear');
                 foreach ($sheet->getRowIterator() as $key => $row) {
                     $cells = $row->getCells();
-//                    dd($cells);
                     if ($key === 1) {
-                        $this->checkTable($fileName, $cells);
                         foreach ($cells as $cell) {
-                            dd($cell);
                             $fieldNames[] = $cell->getValue();
                         }
                     } else {
@@ -70,9 +82,6 @@ class ExcelImport extends Command
                         foreach ($multipleArrays as $multipleArray) {
                             try {
                                 $value = $this->checkObject($multipleArray[0]->getValue());
-                                if ($value === '') {
-                                    $value = 'NULL';
-                                }
                                 $rowData[$multipleArray[1]] = trim($value);
                             } catch (ReflectionException|Exception $e) {
                                 dd($e->getMessage());
@@ -85,10 +94,11 @@ class ExcelImport extends Command
                 }
                 try {
                     foreach ($this->chunk($data, 100) as $count => $chunk) {
-                        if (DB::table('INTEGRATION_' . $fileName)->insert($chunk)) {
-                            $this->info("[x] Record Successfully inserted from sheet number $sheetKey");
+                        $count += count($chunk);
+                        if (DB::table('INTEGRATION_FILES_DATA_TABLE')->insert($chunk)) {
+                            $this->info("[x] $count Record Successfully inserted from sheet number $sheetKey");
                         } else {
-                            $this->warn("[x] Record doesnt inserted from sheet number $sheetKey");
+                            $this->warn("[x] $count Record doesnt inserted from sheet number $sheetKey");
                         }
                     }
                 } catch (Throwable|Exception $e) {
@@ -101,6 +111,8 @@ class ExcelImport extends Command
         }
         $reader->close();
         $this->info('[x] File Closed');
+
+        return CommandAlias::SUCCESS;
     }
 
     public function checkObject($obj)
@@ -115,34 +127,10 @@ class ExcelImport extends Command
         }
     }
 
-    public function checkTable(string $tableName, array $fields): bool
-    {
-        $modifiedTableName = 'INTEGRATION_' . $tableName;
-        try {
-            if (Schema::hasTable($modifiedTableName) === false) {
-                Schema::create($modifiedTableName, static function (Blueprint $table) use ($fields) {
-                    foreach ($fields as $field) {
-//                        dump($field->getStyle()->getFontSize());
-                        $table->text($field->getValue(), 65000)->nullable();
-                    }
-                });
-                $this->info('[x] Table Created');
-            } else {
-                $this->info('[x] Table exist');
-            }
-        } catch (Exception|Throwable $exception) {
-            dd($exception->getMessage());
-//            return $exception->getMessage();
-        }
-        return true;
-
-    }
-
-    public function chunk($data, $chunkSize)
+    public function chunk($data, $chunkSize): \Generator
     {
         for ($i = 0, $j = count($data); $i < $j; $i += $chunkSize) {
             yield array_slice($data, $i, $chunkSize);
         }
     }
-
 }
