@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use MultipleIterator;
 use ReflectionException;
+use Symfony\Component\Console\Command\Command as CommandAlias;
 use Throwable;
 
 class DOC_MOVEMENT_DATA_TABLE extends Command
@@ -32,12 +33,8 @@ class DOC_MOVEMENT_DATA_TABLE extends Command
      */
     protected $description = 'Command description';
 
-    /**
-     * Execute the console command.
-     *
-     * @return int
-     */
-    public function handle(): int
+
+    public function handle()
     {
         if (Schema::hasTable('INTEGRATION_DOC_MOVEMENT_DATA_TABLE') === false) {
             Schema::create('INTEGRATION_DOC_MOVEMENT_DATA_TABLE', static function (Blueprint $table) {
@@ -45,8 +42,8 @@ class DOC_MOVEMENT_DATA_TABLE extends Command
                 $table->integer('DOC_ID')->default(0)->nullable();
                 $table->integer('FROM_USER_ID')->default(0)->nullable();
                 $table->integer('TO_USER_ID')->default(0)->nullable();
-                $table->integer('FROM_DEP_ID')->default(0)->nullable();
-                $table->integer('TO_DEP_ID')->default(0)->nullable();
+                $table->string('FROM_DEP_ID')->nullable();
+                $table->string('TO_DEP_ID')->nullable();
                 $table->string('DATE_SENT')->nullable();
                 $table->string('DATE_RECIEVED')->nullable();
                 $table->integer('STATUS_ID')->nullable();
@@ -69,23 +66,36 @@ class DOC_MOVEMENT_DATA_TABLE extends Command
             $reader->open($filePath);
             $this->info('[x] File opened');
         } catch (IOException|Exception $e) {
-            dd($e->getMessage());
+            $this->output->error($e->getMessage());
         }
 
         try {
             $data = [];
-            $fieldNames = [];
+            $fieldNames = ['DOC_MOV_ID',
+                'DOC_ID',
+                'FROM_USER_ID',
+                'TO_USER_ID',
+                'FROM_DEP_ID',
+                'TO_DEP_ID',
+                'DATE_SENT',
+                'DATE_RECIEVED',
+                'STATUS_ID',
+                'IS_ACTIVE',
+                'SIDENOTE_ID',
+                'MOV_LEVEL',
+                'NOTE',
+                'IS_ORGINAL',
+                'RETURNER_EMP_ID',
+                'DATE_SENT_SYSDATE',
+                'LAST_UPDATED_DATE'
+            ];
             $sheetIndex = $this->option('index');
             $this->info('[x] File starting for read');
             foreach ($reader->getSheetIterator() as $sheetKey => $sheet) {
                 if ($sheetKey === (int)$sheetIndex) {
                     foreach ($sheet->getRowIterator() as $key => $row) {
-                        $cells = $row->getCells();
-                        if ($key === 1) {
-                            foreach ($cells as $cell) {
-                                $fieldNames[] = $cell->getValue();
-                            }
-                        } else {
+                        if (((int)$sheetIndex === 1 && $key > 1) || ((int)$sheetIndex > 1 && $key >= 1)) {
+                            $cells = $row->getCells();
                             $rowData = [];
                             $multipleArrays = new MultipleIterator();
                             $multipleArrays->attachIterator(new ArrayIterator($cells));
@@ -95,18 +105,22 @@ class DOC_MOVEMENT_DATA_TABLE extends Command
                                     $value = $this->checkObject($multipleArray[0]->getValue());
                                     $rowData[$multipleArray[1]] = $value;
                                 } catch (ReflectionException|Exception $e) {
-                                    dd($e->getMessage());
+                                    $this->output->error($e->getMessage());
                                 }
                             }
                             $data[] = $rowData;
                             unset($rowData, $cells);
                         }
+
+
                     }
                     try {
-                        foreach ($this->chunk($data, 100) as $chunk) {
-                            DB::transaction(function () use ($chunk, $sheetKey) {
+                        $count = 0;
+                        foreach ($this->chunk($data, 116) as $chunk) {
+                            $count += count($chunk);
+                            DB::transaction(function () use ($chunk, $count, $sheetKey) {
                                 if (DB::table('INTEGRATION_DOC_MOVEMENT_DATA_TABLE')->insert($chunk)) {
-                                    $this->output->info("[x] Record Successfully inserted to sheet number $sheetKey");
+                                    $this->output->info("[x] $count Record Successfully inserted to sheet number $sheetKey");
                                 } else {
                                     $this->output->warning("[x] Record doesn't inserted to sheet number $sheetKey");
                                 }
@@ -114,15 +128,16 @@ class DOC_MOVEMENT_DATA_TABLE extends Command
                             }, 6);
                         }
                     } catch (Throwable|Exception $e) {
-                        dd($e->getMessage());
+                        $this->output->error($e->getMessage());
                     }
                 }
             }
         } catch (ReaderNotOpenedException|ReflectionException|Throwable|Exception $e) {
-            dd($e->getMessage());
+            $this->output->error($e->getMessage());
         }
         $reader->close();
         $this->info('[x] File Closed');
+        return CommandAlias::SUCCESS;
     }
 
 
@@ -134,7 +149,7 @@ class DOC_MOVEMENT_DATA_TABLE extends Command
             }
             return $obj;
         } catch (Exception $e) {
-            dd($e->getMessage());
+            $this->output->error($e->getMessage());
         }
     }
 
