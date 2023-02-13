@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use ArrayIterator;
 use Box\Spout\Common\Exception\IOException;
 use Box\Spout\Reader\Common\Creator\ReaderEntityFactory;
 use Box\Spout\Reader\Exception\ReaderNotOpenedException;
@@ -10,6 +11,7 @@ use Illuminate\Console\Command;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use MultipleIterator;
 use ReflectionException;
 use Symfony\Component\Console\Command\Command as CommandAlias;
 use Throwable;
@@ -21,7 +23,7 @@ class DOC_MOVEMENT_BACKUP_DATA_TABLE extends Command
      *
      * @var string
      */
-    protected $signature = 'excel:movement-data-backup';
+    protected $signature = 'excel:movement-data-backup {--index=}';
 
     /**
      * The console command description.
@@ -43,8 +45,8 @@ class DOC_MOVEMENT_BACKUP_DATA_TABLE extends Command
                 $table->integer('DOC_ID')->default(0)->nullable();
                 $table->integer('FROM_USER_ID')->default(0)->nullable();
                 $table->integer('TO_USER_ID')->default(0)->nullable();
-                $table->integer('FROM_DEP_ID')->default(0)->nullable();
-                $table->integer('TO_DEP_ID')->default(0)->nullable();
+                $table->string('FROM_DEP_ID')->nullable();
+                $table->string('TO_DEP_ID')->nullable();
                 $table->string('DATE_SENT')->nullable();
                 $table->string('DATE_RECIEVED')->nullable();
                 $table->integer('STATUS_ID')->nullable();
@@ -67,56 +69,77 @@ class DOC_MOVEMENT_BACKUP_DATA_TABLE extends Command
             $reader->open($filePath);
             $this->info('[x] File opened');
         } catch (IOException|Exception $e) {
-            dd($e->getMessage());
+            $this->output->error($e->getMessage());
         }
 
         try {
             $data = [];
-            $fieldNames = [];
+            $fieldNames = ['DOC_MOV_ID',
+                'DOC_ID',
+                'FROM_USER_ID',
+                'TO_USER_ID',
+                'FROM_DEP_ID',
+                'TO_DEP_ID',
+                'DATE_SENT',
+                'DATE_RECIEVED',
+                'STATUS_ID',
+                'IS_ACTIVE',
+                'SIDENOTE_ID',
+                'MOV_LEVEL',
+                'NOTE',
+                'IS_ORGINAL',
+                'RETURNER_EMP_ID',
+                'DATE_SENT_SYSDATE',
+                'LAST_UPDATED_DATE'
+            ];
+            $sheetIndex = $this->option('index');
+            $this->info('[x] File starting for read');
             foreach ($reader->getSheetIterator() as $sheetKey => $sheet) {
-                foreach ($sheet->getRowIterator() as $key => $row) {
-                    $cells = $row->getCells();
-                    if ($key === 1) {
-                        foreach ($cells as $cell) {
-                            $fieldNames[] = $cell->getValue();
-                        }
-                    } else {
-                        $rowData = [];
-                        $multipleArrays = new \MultipleIterator();
-                        $multipleArrays->attachIterator(new \ArrayIterator($cells));
-                        $multipleArrays->attachIterator(new \ArrayIterator($fieldNames));
-                        foreach ($multipleArrays as $multipleArray) {
-                            try {
-                                $value = $this->checkObject($multipleArray[0]->getValue());
-                                $rowData[$multipleArray[1]] = trim($value);
-                            } catch (ReflectionException|Exception $e) {
-                                dd($e->getMessage());
+                if ($sheetKey === (int)$sheetIndex) {
+                    foreach ($sheet->getRowIterator() as $key => $row) {
+                        if (((int)$sheetIndex === 1 && $key > 1) || ((int)$sheetIndex > 1 && $key >= 1)) {
+                            $cells = $row->getCells();
+                            $rowData = [];
+                            $multipleArrays = new MultipleIterator();
+                            $multipleArrays->attachIterator(new ArrayIterator($cells));
+                            $multipleArrays->attachIterator(new ArrayIterator($fieldNames));
+                            foreach ($multipleArrays as $multipleArray) {
+                                try {
+                                    $value = $this->checkObject($multipleArray[0]->getValue());
+                                    $rowData[$multipleArray[1]] = $value;
+                                } catch (ReflectionException|Exception $e) {
+                                    $this->output->error($e->getMessage());
+                                }
                             }
+                            $data[] = $rowData;
+                            unset($rowData, $cells);
                         }
-                        $data[] = $rowData;
-                        unset($rowData);
+
+
                     }
-                    unset($cells);
-                }
-                try {
-                    foreach ($this->chunk($data, 100) as $count => $chunk) {
-                        $count += count($chunk);
-                        if (DB::table('INTEGRATION_DOC_MOVEMENT_BACKUP_DATA_TABLE')->insert($chunk)) {
-                            $this->info("[x] $count Record Successfully inserted from sheet number $sheetKey");
-                        } else {
-                            $this->warn("[x] $count Record doesnt inserted from sheet number $sheetKey");
+                    try {
+                        $count = 0;
+                        foreach ($this->chunk($data, 116) as $chunk) {
+                            $count += count($chunk);
+                            DB::transaction(function () use ($chunk, $count, $sheetKey) {
+                                if (DB::table('INTEGRATION_DOC_MOVEMENT_BACKUP_DATA_TABLE')->insert($chunk)) {
+                                    $this->info("[x] $count Record Successfully inserted to sheet number $sheetKey");
+                                } else {
+                                    $this->warn("[x] Record doesn't inserted to sheet number $sheetKey");
+                                }
+
+                            }, 6);
                         }
+                    } catch (Throwable|Exception $e) {
+                        $this->output->error($e->getMessage());
                     }
-                } catch (Throwable|Exception $e) {
-                    dd($e->getMessage());
                 }
             }
         } catch (ReaderNotOpenedException|ReflectionException|Throwable|Exception $e) {
-            dd($e->getMessage());
+            $this->output->error($e->getMessage());
         }
         $reader->close();
         $this->info('[x] File Closed');
-
         return CommandAlias::SUCCESS;
     }
 

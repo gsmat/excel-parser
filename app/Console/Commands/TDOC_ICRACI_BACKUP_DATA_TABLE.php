@@ -16,14 +16,14 @@ use ReflectionException;
 use Symfony\Component\Console\Command\Command as CommandAlias;
 use Throwable;
 
-class TDOC_ICRACI_DATA_TABLE extends Command
+class TDOC_ICRACI_BACKUP_DATA_TABLE extends Command
 {
     /**
      * The name and signature of the console command.
      *
      * @var string
      */
-    protected $signature = 'excel:t-doc {--index=}';
+    protected $signature = 'excel:t-doc-bak {--index=}';
 
     /**
      * The console command description.
@@ -39,8 +39,8 @@ class TDOC_ICRACI_DATA_TABLE extends Command
      */
     public function handle()
     {
-        if (Schema::hasTable('INTEGRATION_TDOC_ICRACI_DATA_TABLE') === false) {
-            Schema::create('INTEGRATION_TDOC_ICRACI_DATA_TABLE', static function (Blueprint $table) {
+        if (Schema::hasTable('INTEGRATION_TDOC_ICRACI_BACKUP_DATA_TABLE') === false) {
+            Schema::create('INTEGRATION_TDOC_ICRACI_BACKUP_DATA_TABLE', static function (Blueprint $table) {
                 $table->integer('EMP_ID')->default(0);
                 $table->integer('DOC_ID')->default(0);
                 $table->string('SYS_DATE')->nullable();
@@ -51,7 +51,7 @@ class TDOC_ICRACI_DATA_TABLE extends Command
             $this->info('[x] Table Created');
         }
         ini_set('memory_limit', '10000000000');
-        $path = '/files/TDOC_ICRACI_DATA_TABLE.xlsx';
+        $path = '/files/TDOC_ICRACI_BACKUP_DATA_TABLE.xlsx';
         $filePath = public_path($path);
         $reader = ReaderEntityFactory::createXLSXReader($path);
         try {
@@ -101,7 +101,7 @@ class TDOC_ICRACI_DATA_TABLE extends Command
                         foreach ($this->chunk($data, 349) as $chunk) {
                             $count += count($chunk);
                             DB::transaction(function () use ($chunk, $count, $sheetKey) {
-                                if (DB::table('INTEGRATION_TDOC_ICRACI_DATA_TABLE')->insert($chunk)) {
+                                if (DB::table('INTEGRATION_TDOC_ICRACI_BACKUP_DATA_TABLE')->insert($chunk)) {
                                     $this->info("[x] $count Record Successfully inserted to sheet number $sheetKey");
                                 } else {
                                     $this->warn("[x] Record doesn't inserted to sheet number $sheetKey");

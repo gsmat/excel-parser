@@ -24,7 +24,7 @@ class DOC_MOVEMENT_DATA_TABLE extends Command
      *
      * @var string
      */
-    protected $signature = 'excel:movement-data {--index=}';
+    protected $signature = 'excel:document-data {--index=}';
 
     /**
      * The console command description.
@@ -111,26 +111,30 @@ class DOC_MOVEMENT_DATA_TABLE extends Command
                             $data[] = $rowData;
                             unset($rowData, $cells);
                         }
-
-
-                    }
-                    try {
-                        $count = 0;
-                        foreach ($this->chunk($data, 116) as $chunk) {
-                            $count += count($chunk);
-                            DB::transaction(function () use ($chunk, $count, $sheetKey) {
-                                if (DB::table('INTEGRATION_DOC_MOVEMENT_DATA_TABLE')->insert($chunk)) {
-                                    $this->output->info("[x] $count Record Successfully inserted to sheet number $sheetKey");
-                                } else {
-                                    $this->output->warning("[x] Record doesn't inserted to sheet number $sheetKey");
+                        if ((int)$key % 1000 === 0) {
+                            $this->info('Key Number = ' . $key);
+                            try {
+                                $count = 0;
+                                foreach ($this->chunk($data, 116) as $chunk) {
+                                    $count += count($chunk);
+                                    DB::transaction(function () use ($chunk, $count, $sheetKey) {
+                                        if (DB::table('INTEGRATION_DOC_MOVEMENT_DATA_TABLE')->insert($chunk)) {
+                                            $this->info("[x] $count Record Successfully inserted to sheet number $sheetKey");
+                                        } else {
+                                            $this->warn("[x] Record doesn't inserted to sheet number $sheetKey");
+                                        }
+        
+                                    }, 6);
                                 }
-
-                            }, 6);
+                                unset($data);
+                            } catch (Throwable|Exception $e) {
+                                $this->output->error($e->getMessage());
+                            }
                         }
-                    } catch (Throwable|Exception $e) {
-                        $this->output->error($e->getMessage());
+                        }
+
                     }
-                }
+                    
             }
         } catch (ReaderNotOpenedException|ReflectionException|Throwable|Exception $e) {
             $this->output->error($e->getMessage());
